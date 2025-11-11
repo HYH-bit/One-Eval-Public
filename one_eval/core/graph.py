@@ -1,0 +1,67 @@
+from dataflow_agent.graphbuilder.graph_builder import GenericGraphBuilder
+from one_eval.toolkits.tool_manager import get_tool_manager
+
+class GraphBuilder(GenericGraphBuilder):
+    """Eval流程Graph的构建类"""
+    def __init__(self, state_model, entry_point="start"):
+        # === 基础图结构 ===
+        self.state_model = state_model
+        self.entry_point = entry_point
+        self.nodes: Dict[str, Tuple[Callable, str]] = {}   # 节点名 → (函数, 角色)
+        self.edges: List[Tuple[str, str]] = []             # 普通边
+        self.conditional_edges: Dict[str, Callable] = {}   # 条件边
+        
+        # === 工具注册（简化版，仅 Tool）===
+        self.tool_registry: Dict[str, Callable] = {}       # 工具名 → 函数
+        
+        # === 兼容字段（保留以防后续拓展）===
+        self.pre_tool_registry: Dict[str, Dict[str, Callable]] = {}
+        self.post_tool_registry: Dict[str, List[Callable]] = {}
+        self.tool_manager = None                           # 延迟导入
+
+    # 用类型注释显式暴露父类方法，便于自动补全和文档生成
+    def add_node(self, name: str, func: Callable, role: str | None = None) -> "GraphBuilder": ...
+    def add_nodes(self, nodes: Dict[str, Callable], role_mapping: Dict[str, str] | None = None) -> "GraphBuilder": ...
+    def add_edge(self, src: str, dst: str) -> "GraphBuilder": ...
+    def add_edges(self, edges: List[Tuple[str, str]]) -> "GraphBuilder": ...
+    def add_conditional_edge(self, src: str, condition_func: Callable) -> "GraphBuilder": ...
+    def add_conditional_edges(self, conditional_edges: Dict[str, Callable]) -> "GraphBuilder": ...
+
+    def custom_tool(self, name: str, role: str):
+        def decorator(func):
+            if not hasattr(self, "custom_tool_registry"):
+                self.custom_tool_registry = {}
+            if role not in self.custom_tool_registry:
+                self.custom_tool_registry[role] = {}
+            self.custom_tool_registry[role][name] = func
+            return func
+        return decorator
+
+    def _register_tools_for_role(self, role: str, state: Any):
+        """
+        为指定角色注册自定义工具(不区分 pre/post)。
+        支持 override 兼容。
+        """
+        tm = self._get_tool_manager()
+        if not hasattr(self, "custom_tool_registry"):
+            return
+
+        if role in self.custom_tool_registry:
+            for tool_name, tool_func in self.custom_tool_registry[role].items():
+                try:
+                    tm.register_custom_tool(
+                        name=tool_name,
+                        role=role,
+                        func=lambda s=state, f=tool_func: f(s),
+                        override=True,
+                    )
+                except TypeError:
+                    tm.register_custom_tool(
+                        name=tool_name,
+                        role=role,
+                        func=lambda s=state, f=tool_func: f(s),
+                    )
+
+    def build(self):
+        """用父类的方法，构建并返回编译后的图"""
+        return super().build()

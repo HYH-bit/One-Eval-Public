@@ -1,0 +1,65 @@
+from dataflow_agent.state import MainState
+from dataclasses import dataclass, field
+from typing import Any, Dict, List, Optional
+import time
+import copy
+import uuid
+
+@dataclass
+class NodeState(MainState):
+    """Global state container for One-Eval graph execution."""
+
+    # === 基本元信息 ===
+    state_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    current_node: Optional[str] = None
+    last_updated: float = field(default_factory=time.time)
+
+    # === 用户输入 / 任务上下文 ===
+    user_query: Optional[str] = None               # e.g. "评估模型在文本过滤任务的表现"
+    task_domain: Optional[str] = None              # "text", "vision", "math" 等
+    target_model: Optional[str] = None             # 被测模型名或本地路径
+    reference_models: List[str] = field(default_factory=list) # 预留semantic评估接口
+
+    # === 数据与评测基准 ===
+    benches: List[str] = field(default_factory=list)         # Benchmark 名称列表
+    bench_meta: Dict[str, Any] = field(default_factory=dict) # 每个bench的meta信息
+    dataset_cache: Dict[str, str] = field(default_factory=dict) # 每个bench的数据集缓存路径
+
+    # === 评测规划与结果 ===
+    key_plan: Dict[str, Any] = field(default_factory=dict)   # 输入输出字段映射
+    metric_plan: Dict[str, Any] = field(default_factory=dict)
+    eval_results: Dict[str, Any] = field(default_factory=dict)
+    reports: Dict[str, Any] = field(default_factory=dict)
+
+    # === LLM交互历史 ===
+    llm_history: List[Dict[str, Any]] = field(default_factory=list)
+
+    # === 人机交互控制 ===
+    waiting_for_human: bool = False
+    human_feedback: Optional[str] = None
+
+    # === 异常与日志 ===
+    error_flag: bool = False
+    error_msg: Optional[str] = None
+
+    def update(self, **fields: Any) -> None:
+        """Update multiple attributes in one call and refresh timestamp."""
+        for name, value in fields.items():
+            # 仅更新已存在的字段，避免拼写错误产生新属性
+            if hasattr(self, name):
+                setattr(self, name, value)
+            else:
+                raise AttributeError(f"NodeState has no field '{name}'")
+        self.last_updated = time.time()
+
+    def checkpoint(self) -> Dict[str, Any]:
+        """Return a deep copy of the current state for safe persistence."""
+        # copy.deepcopy 确保嵌套结构不会被外部修改影响
+        return copy.deepcopy(self.__dict__)
+
+    def resume(self, snapshot: Dict[str, Any]) -> None:
+        """Restore state from a snapshot dictionary."""
+        for name, value in snapshot.items():
+            if hasattr(self, name):
+                setattr(self, name, value)
+        self.last_updated = time.time()
