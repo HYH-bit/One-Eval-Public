@@ -15,6 +15,10 @@ class BaseNode(ABC):
         """核心执行逻辑"""
         pass
 
+    def __call__(self, state: NodeState) -> NodeState:
+        """使节点可调用"""
+        return self.run(state)
+
     def log(self, msg: str):
         log.info(f"[{self.name}] {msg}")
 

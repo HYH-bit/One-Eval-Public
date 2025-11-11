@@ -37,7 +37,10 @@ class ColorFormatter(logging.Formatter):
 def _make_handlers():
     console = logging.StreamHandler()
     console.setLevel(LOG_LEVEL)
-    console.setFormatter(ColorFormatter("%Y-%m-%d %H:%M:%S"))
+    console.setFormatter(ColorFormatter(
+        "%(asctime)s | %(levelname)-8s | %(name)s | %(filename)s:%(lineno)d | %(message)s",
+        "%Y-%m-%d %H:%M:%S"
+    ))
 
     file = RotatingFileHandler(LOG_FILE, maxBytes=MAX_SIZE, backupCount=BACKUP_COUNT, encoding="utf-8")
     file.setLevel(LOG_LEVEL)

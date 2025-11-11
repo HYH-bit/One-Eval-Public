@@ -22,8 +22,6 @@ requires-python = ">=3.10"
 "Homepage" = "https://github.com/OpenDCAI/One-Eval"
 "Issues" = "https://github.com/OpenDCAI/One-Eval/issues"
 
-[tool.setuptools.packages]
-find = {
-    where = ["one_eval"],
-    include = ["one_eval*"],
-}
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["one_eval*"]

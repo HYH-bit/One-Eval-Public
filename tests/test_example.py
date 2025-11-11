@@ -1,7 +1,7 @@
 from one_eval.core.state import NodeState
 from one_eval.core.graph import GraphBuilder
-from one_eval.nodes.nl2bench_node import NL2BenchNode
-from one_eval.nodes.eval_node import EvalNode
+from one_eval.nodes.nl2bench import NL2BenchNode
+from one_eval.nodes.eval import EvalNode
 import asyncio
 
 async def main():
@@ -9,8 +9,8 @@ async def main():
     builder = GraphBuilder(state_model=NodeState, entry_point="nl2bench")
     
     # 添加节点
-    builder.add_node("nl2bench", NL2BenchNode(), role="nl2bench")
-    builder.add_node("eval", EvalNode(), role="eval")
+    builder.add_node("nl2bench", NL2BenchNode("nl2bench"), role="nl2bench")
+    builder.add_node("eval", EvalNode("eval"), role="eval")
     
     # 添加边
     builder.add_edge("nl2bench", "eval")

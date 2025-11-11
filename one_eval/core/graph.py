@@ -1,5 +1,6 @@
 from dataflow_agent.graphbuilder.graph_builder import GenericGraphBuilder
 from one_eval.toolkits.tool_manager import get_tool_manager
+from typing import Callable, Dict, List, Tuple, Any
 
 class GraphBuilder(GenericGraphBuilder):
     """Eval流程Graph的构建类"""
@@ -20,12 +21,29 @@ class GraphBuilder(GenericGraphBuilder):
         self.tool_manager = None                           # 延迟导入
 
     # 用类型注释显式暴露父类方法，便于自动补全和文档生成
-    def add_node(self, name: str, func: Callable, role: str | None = None) -> "GraphBuilder": ...
-    def add_nodes(self, nodes: Dict[str, Callable], role_mapping: Dict[str, str] | None = None) -> "GraphBuilder": ...
-    def add_edge(self, src: str, dst: str) -> "GraphBuilder": ...
-    def add_edges(self, edges: List[Tuple[str, str]]) -> "GraphBuilder": ...
-    def add_conditional_edge(self, src: str, condition_func: Callable) -> "GraphBuilder": ...
-    def add_conditional_edges(self, conditional_edges: Dict[str, Callable]) -> "GraphBuilder": ...
+    def add_node(self, name: str, func: Callable, role: str | None = None) -> "GraphBuilder":
+        super().add_node(name, func, role)
+        return self
+        
+    def add_nodes(self, nodes: Dict[str, Callable], role_mapping: Dict[str, str] | None = None) -> "GraphBuilder":
+        super().add_nodes(nodes, role_mapping)
+        return self
+        
+    def add_edge(self, src: str, dst: str) -> "GraphBuilder":
+        super().add_edge(src, dst)
+        return self
+        
+    def add_edges(self, edges: List[Tuple[str, str]]) -> "GraphBuilder":
+        super().add_edges(edges)
+        return self
+        
+    def add_conditional_edge(self, src: str, condition_func: Callable) -> "GraphBuilder":
+        super().add_conditional_edge(src, condition_func)
+        return self
+        
+    def add_conditional_edges(self, conditional_edges: Dict[str, Callable]) -> "GraphBuilder":
+        super().add_conditional_edges(conditional_edges)
+        return self
 
     def custom_tool(self, name: str, role: str):
         def decorator(func):
