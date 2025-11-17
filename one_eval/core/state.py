@@ -31,7 +31,7 @@ class NodeState(MainState):
     eval_results: Dict[str, Any] = field(default_factory=dict)
     reports: Dict[str, Any] = field(default_factory=dict)
 
-    # === LLM交互历史 ===
+    # === LLM交互历史 === #
     llm_history: List[Dict[str, Any]] = field(default_factory=list)
 
     # === 人机交互控制 ===
