@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import axios from "axios";
 import { motion } from "framer-motion";
 import { 
-    Clock, X, Search, Database, Play, Save, Layers, Plus, BookOpen, Trash2, AlertTriangle, Settings, ChevronRight, ChevronDown, Check
+    Clock, X, Search, Database, Play, Save, Layers, Plus, BookOpen, Trash2, AlertTriangle, Settings, ChevronRight, ChevronDown, Check, RefreshCw
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -133,6 +133,28 @@ export const Eval = () => {
             // Strategy: Only sync if status changed to interrupted, or if we are not editing.
             if (data.status === "interrupted" && status !== "interrupted") {
                  setEditBenches(data.state_values.benches || []);
+            } else if (data.status === "interrupted" && Array.isArray(data.state_values.benches)) {
+                const remoteBenches = data.state_values.benches;
+                setEditBenches(prev => {
+                    if (!Array.isArray(prev) || prev.length === 0) return prev;
+                    const remoteMap = new Map(remoteBenches.map((b: any) => [b?.bench_name, b]));
+                    return prev.map((b: any) => {
+                        const rb = remoteMap.get(b?.bench_name);
+                        if (!rb) return b;
+                        const nextMeta = { ...(b?.meta || {}) };
+                        const remoteMeta = rb?.meta || {};
+                        if (remoteMeta && typeof remoteMeta === "object" && !Array.isArray(remoteMeta)) {
+                            if (remoteMeta.download_error !== undefined) nextMeta.download_error = remoteMeta.download_error;
+                        }
+                        return {
+                            ...b,
+                            download_status: rb.download_status ?? b.download_status,
+                            dataset_cache: rb.dataset_cache ?? b.dataset_cache,
+                            eval_status: rb.eval_status ?? b.eval_status,
+                            meta: nextMeta
+                        };
+                    });
+                });
             }
         }
         if (data.next_node) {
@@ -355,6 +377,55 @@ export const Eval = () => {
             setState({ ...state, benches: newStateBenches });
         }
       }
+  };
+
+  const handleRetryDownload = async (params: { bench_name: string, config?: string, split?: string }) => {
+      if (!threadId) return;
+      const { bench_name, config, split } = params;
+
+      const applyLocalPending = (b: any) => {
+          if (b?.bench_name !== bench_name) return b;
+          const nextMeta = { ...(b?.meta || {}) };
+          const prevDl = nextMeta.download_config || {};
+          nextMeta.download_config = { ...prevDl, ...(config ? { config } : {}), ...(split ? { split } : {}) };
+          delete nextMeta.download_error;
+          return { ...b, download_status: "pending", meta: nextMeta };
+      };
+
+      setEditBenches(prev => prev.map(applyLocalPending));
+      setState(prev => {
+          if (!prev) return prev;
+          return { ...prev, benches: (prev.benches || []).map(applyLocalPending) };
+      });
+
+      await axios.post(`${apiBaseUrl}/api/workflow/redownload/${threadId}`, {
+          bench_name,
+          config,
+          split
+      });
+  };
+
+  const handleRerunExecution = async () => {
+      if (!threadId) return;
+
+      const benchesToSend = (status === "interrupted" ? editBenches : (state?.benches || [])) || [];
+      const nextModel = selectedModel ?? state?.target_model ?? null;
+      const modelForUpdate = nextModel
+          ? { ...nextModel, temperature: evalParams.temperature, top_p: evalParams.top_p, max_tokens: evalParams.max_tokens }
+          : null;
+      const stateUpdates: any = {
+          benches: benchesToSend,
+          target_model_name: selectedModel?.name ?? state?.target_model_name,
+      };
+      if (modelForUpdate) stateUpdates.target_model = modelForUpdate;
+
+      await axios.post(`${apiBaseUrl}/api/workflow/rerun_execution/${threadId}`, {
+          state_updates: stateUpdates,
+          goto_confirm: true
+      });
+
+      setStatus("running");
+      setMessages(prev => [...prev, { id: Date.now().toString(), role: "ai", content: "Re-running execution. Please confirm configuration to start evaluation.", timestamp: Date.now() }]);
   };
   
   // Helper to determine block status
@@ -720,6 +791,7 @@ export const Eval = () => {
                                        bench={b} 
                                        activeNode={activeNode} 
                                        onUpdate={(updated) => handleBenchUpdate(updated, i)}
+                                       onRetryDownload={handleRetryDownload}
                                    />
                                </div>
                            ))}
@@ -757,12 +829,25 @@ export const Eval = () => {
                                        <Settings className="w-4 h-4" /> Evaluation Configuration
                                    </div>
                                    
-                                   {/* Status Indicator */}
-                                   {status === "interrupted" && currentNode?.includes("PreEvalReviewNode") && (
-                                       <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-1 rounded animate-pulse">
-                                           Waiting for Confirmation
-                                       </span>
-                                   )}
+                                   <div className="flex items-center gap-2">
+                                      {(status === "completed" || status === "failed") && threadId && (
+                                           <Button
+                                               size="sm"
+                                               variant="outline"
+                                               className="h-7 text-xs gap-1"
+                                               onClick={handleRerunExecution}
+                                           >
+                                               <RefreshCw className="w-3 h-3" /> Re-run Execution
+                                           </Button>
+                                       )}
+
+                                       {/* Status Indicator */}
+                                       {status === "interrupted" && currentNode?.includes("PreEvalReviewNode") && (
+                                           <span className="text-[10px] font-bold text-amber-600 bg-amber-100 px-2 py-1 rounded animate-pulse">
+                                               Waiting for Confirmation
+                                           </span>
+                                       )}
+                                   </div>
                                </div>
                                <div className="grid grid-cols-12 gap-x-4 gap-y-4">
                                    <div className="col-span-12 min-w-0">

@@ -12,6 +12,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from one_eval.logger import get_logger
+from one_eval.toolkits.hf_download_tool import HFDownloadTool
 
 log = get_logger("OneEval-Server")
 
@@ -406,6 +407,18 @@ class ResumeWorkflowRequest(BaseModel):
     selected_benches: Optional[List[str]] = None
     state_updates: Optional[Dict[str, Any]] = None # For manual config modifications
 
+class RedownloadBenchRequest(BaseModel):
+    bench_name: str
+    repo_id: Optional[str] = None
+    config: Optional[str] = None
+    split: Optional[str] = None
+    force: bool = False
+
+class RerunExecutionRequest(BaseModel):
+    bench_name: Optional[str] = None
+    state_updates: Optional[Dict[str, Any]] = None
+    goto_confirm: bool = True
+
 class WorkflowStatusResponse(BaseModel):
     thread_id: str
     status: str # "running", "interrupted", "completed", "failed", "idle"
@@ -543,6 +556,269 @@ async def resume_workflow(req: ResumeWorkflowRequest):
     
     asyncio.create_task(run_graph_background(req.thread_id, None, resume_command=command))
     return {"status": "resuming"}
+
+@app.post("/api/workflow/rerun_execution/{thread_id}")
+async def rerun_execution(thread_id: str, req: RerunExecutionRequest):
+    async with get_checkpointer(DB_PATH, mode="run") as checkpointer:
+        graph = build_complete_workflow(checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+
+        try:
+            snap = await graph.aget_state(config)
+        except Exception:
+            raise HTTPException(status_code=404, detail="thread not found")
+
+        if not snap or not snap.values:
+            raise HTTPException(status_code=404, detail="thread not found")
+
+        if req.state_updates:
+            updates = dict(req.state_updates)
+
+            if "target_model" in updates and isinstance(updates["target_model"], dict):
+                try:
+                    tm = updates["target_model"]
+                    model_name_or_path = (
+                        tm.get("model_name_or_path")
+                        or tm.get("path")
+                        or tm.get("model_path")
+                        or tm.get("hf_model_name_or_path")
+                    )
+                    if not model_name_or_path:
+                        raise ValueError("target_model missing model_name_or_path/path")
+
+                    updates["target_model"] = ModelConfig(
+                        model_name_or_path=str(model_name_or_path),
+                        is_api=bool(tm.get("is_api", False)),
+                        api_url=tm.get("api_url"),
+                        api_key=tm.get("api_key"),
+                        temperature=float(tm.get("temperature", 0.0) or 0.0),
+                        top_p=float(tm.get("top_p", 1.0) or 1.0),
+                        max_tokens=int(tm.get("max_tokens", 2048) or 2048),
+                        tensor_parallel_size=int(tm.get("tensor_parallel_size", 1) or 1),
+                        max_model_len=tm.get("max_model_len"),
+                    )
+                except Exception as e:
+                    log.error(f"Failed to parse target_model update: {e}")
+                    updates.pop("target_model", None)
+
+            if "benches" in updates and isinstance(updates["benches"], list):
+                benches_data = updates["benches"]
+                updates["benches"] = [
+                    BenchInfo(**b) if isinstance(b, dict) else b
+                    for b in benches_data
+                ]
+
+            log.info(f"Applying rerun state updates for {thread_id}: {list(updates.keys())}")
+            await graph.aupdate_state(config, updates)
+
+        snap = await graph.aget_state(config)
+        values = snap.values or {}
+        benches_any = values.get("benches") or []
+        if not isinstance(benches_any, list):
+            raise HTTPException(status_code=400, detail="invalid state benches")
+
+        benches_list: List[BenchInfo] = []
+        for b in benches_any:
+            if isinstance(b, BenchInfo):
+                benches_list.append(b)
+            elif isinstance(b, dict):
+                benches_list.append(BenchInfo(**b))
+
+        for b in benches_list:
+            if req.bench_name and b.bench_name != req.bench_name:
+                continue
+            b.eval_status = "pending"
+            if b.meta is None:
+                b.meta = {}
+            if isinstance(b.meta, dict):
+                for k in ("eval_result", "eval_detail_path", "eval_error", "eval_abnormality"):
+                    b.meta.pop(k, None)
+
+        await graph.aupdate_state(config, {"benches": benches_list})
+
+    goto_node = "PreEvalReviewNode" if req.goto_confirm else "DataFlowEvalNode"
+    asyncio.create_task(run_graph_background(thread_id, None, resume_command=Command(goto=goto_node)))
+    return {"ok": True, "status": "queued", "goto": goto_node}
+
+def _bench_download_sync(bench: Dict[str, Any], *, repo_root: Path, overrides: Dict[str, Any], max_retries: int = 3) -> Dict[str, Any]:
+    meta = bench.get("meta") or {}
+    if not isinstance(meta, dict):
+        meta = {}
+    bench["meta"] = meta
+
+    if overrides.get("repo_id"):
+        hf_meta = meta.get("hf_meta") or {}
+        if not isinstance(hf_meta, dict):
+            hf_meta = {}
+        hf_meta["hf_repo"] = overrides["repo_id"]
+        meta["hf_meta"] = hf_meta
+
+    dl_config = meta.get("download_config") or {}
+    if not isinstance(dl_config, dict):
+        dl_config = {}
+    if overrides.get("config"):
+        dl_config["config"] = overrides["config"]
+    if overrides.get("split"):
+        dl_config["split"] = overrides["split"]
+    if dl_config:
+        meta["download_config"] = dl_config
+
+    hf_repo = None
+    if isinstance(meta.get("hf_meta"), dict):
+        hf_repo = meta["hf_meta"].get("hf_repo")
+    if not hf_repo:
+        hf_repo = bench.get("bench_name") or bench.get("name") or ""
+
+    if not dl_config:
+        dl_config = {"config": "default", "split": "test"}
+        meta["download_config"] = dl_config
+
+    config_name = dl_config.get("config", "default")
+    split_name = dl_config.get("split", "test")
+
+    structure = meta.get("structure") or {}
+    if isinstance(structure, dict) and structure.get("ok"):
+        subsets = structure.get("subsets", [])
+        if isinstance(subsets, list):
+            available_configs = [s.get("subset") for s in subsets if isinstance(s, dict) and s.get("subset")]
+            if available_configs and config_name not in available_configs:
+                if "main" in available_configs:
+                    config_name = "main"
+                else:
+                    config_name = available_configs[0]
+
+    cache_root = repo_root / "cache"
+    cache_root.mkdir(parents=True, exist_ok=True)
+
+    safe_repo = str(hf_repo).replace("/", "__")
+    filename = f"{safe_repo}__{config_name}__{split_name}.jsonl"
+    output_path = cache_root / filename
+
+    safe_bench = str(bench.get("bench_name") or "").replace("/", "__")
+    if safe_bench:
+        exact = list(cache_root.glob(f"*__{safe_bench}__{config_name}__{split_name}.jsonl"))
+        candidates = exact or list(cache_root.glob(f"*__{safe_bench}__{config_name}__*.jsonl")) or list(cache_root.glob(f"*__{safe_bench}__*.jsonl"))
+        candidates = [p for p in candidates if p.exists() and p.stat().st_size > 0]
+        if candidates:
+            chosen = max(candidates, key=lambda p: p.stat().st_mtime)
+            bench["dataset_cache"] = str(chosen)
+            bench["download_status"] = "success"
+            meta.pop("download_error", None)
+            return bench
+
+    if overrides.get("force") and output_path.exists():
+        try:
+            output_path.unlink()
+        except Exception:
+            pass
+
+    if output_path.exists() and output_path.stat().st_size > 0:
+        bench["dataset_cache"] = str(output_path)
+        bench["download_status"] = "success"
+        meta.pop("download_error", None)
+        return bench
+
+    tool = HFDownloadTool(cache_dir=str(cache_root))
+    last_err = ""
+    ok = False
+    for i in range(max_retries):
+        res = tool.download_and_convert(
+            repo_id=str(hf_repo),
+            config_name=str(config_name),
+            split=str(split_name),
+            output_path=output_path,
+        )
+        if res.get("ok"):
+            ok = True
+            break
+        last_err = res.get("error") or ""
+
+    if ok and output_path.exists() and output_path.stat().st_size > 0:
+        bench["dataset_cache"] = str(output_path)
+        bench["download_status"] = "success"
+        meta.pop("download_error", None)
+    else:
+        bench["download_status"] = "failed"
+        meta["download_error"] = last_err or "download failed"
+    return bench
+
+def _bench_to_dict(b: Any) -> Optional[Dict[str, Any]]:
+    if b is None:
+        return None
+    if isinstance(b, dict):
+        return b
+    if hasattr(b, "__dict__"):
+        d = dict(getattr(b, "__dict__", {}) or {})
+        return d if isinstance(d, dict) else None
+    return None
+
+async def _redownload_bench_background(thread_id: str, bench_name: str, overrides: Dict[str, Any]):
+    async with get_checkpointer(DB_PATH, mode="run") as checkpointer:
+        graph = build_complete_workflow(checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+        snap = await graph.aget_state(config)
+        if not snap or not snap.values:
+            return
+        values = snap.values
+        benches_any = values.get("benches") or []
+        if not isinstance(benches_any, list):
+            return
+        benches = [x for x in (_bench_to_dict(b) for b in benches_any) if isinstance(x, dict)]
+
+        idx = None
+        for i, b in enumerate(benches):
+            if b.get("bench_name") == bench_name:
+                idx = i
+                break
+        if idx is None:
+            return
+
+        bench = benches[idx]
+        updated = await asyncio.to_thread(_bench_download_sync, bench, repo_root=REPO_ROOT, overrides=overrides)
+        benches[idx] = updated
+        await graph.aupdate_state(config, {"benches": [BenchInfo(**b) for b in benches]})
+
+@app.post("/api/workflow/redownload/{thread_id}")
+async def redownload_bench(thread_id: str, req: RedownloadBenchRequest):
+    async with get_checkpointer(DB_PATH, mode="run") as checkpointer:
+        graph = build_complete_workflow(checkpointer=checkpointer)
+        config = {"configurable": {"thread_id": thread_id}}
+        try:
+            snap = await graph.aget_state(config)
+        except Exception:
+            raise HTTPException(status_code=404, detail="thread not found")
+
+        if not snap or not snap.values:
+            raise HTTPException(status_code=404, detail="thread not found")
+
+        values = snap.values
+        benches_any = values.get("benches") or []
+        if not isinstance(benches_any, list):
+            raise HTTPException(status_code=400, detail="invalid state benches")
+        benches = [x for x in (_bench_to_dict(b) for b in benches_any) if isinstance(x, dict)]
+
+        idx = None
+        for i, b in enumerate(benches):
+            if b.get("bench_name") == req.bench_name:
+                idx = i
+                break
+        if idx is None:
+            raise HTTPException(status_code=404, detail="bench not found")
+
+        bench = benches[idx]
+
+        bench["download_status"] = "pending"
+        meta = bench.get("meta") or {}
+        if not isinstance(meta, dict):
+            meta = {}
+        meta.pop("download_error", None)
+        bench["meta"] = meta
+        benches[idx] = bench
+        await graph.aupdate_state(config, {"benches": [BenchInfo(**b) for b in benches]})
+
+    overrides = {"repo_id": req.repo_id, "config": req.config, "split": req.split, "force": req.force}
+    asyncio.create_task(_redownload_bench_background(thread_id, req.bench_name, overrides))
+    return {"ok": True, "status": "queued"}
 
 @app.get("/api/workflow/history", response_model=List[HistoryItem])
 async def get_history():
