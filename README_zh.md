@@ -1,5 +1,3 @@
-# One-Eval
-
 <div align="center">
   <!-- TODO: 在这里放项目 Logo -->
   <img src="./static/logo/logo.png" width="360" alt="One-Eval Logo" />
