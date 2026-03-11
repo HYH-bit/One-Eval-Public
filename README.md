@@ -2,11 +2,12 @@
   <!-- TODO: Add Project Logo Here -->
   <img src="./static/logo/logo.png" width="360" alt="One-Eval Logo" />
 
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![License](https://img.shields.io/github/license/OpenDCAI/One-Eval)](./LICENSE)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/OpenDCAI/One-Eval)
 [![Repo Size](https://img.shields.io/github/repo-size/OpenDCAI/One-Eval?color=green)](https://github.com/OpenDCAI/One-Eval)
-
 [![ArXiv](https://img.shields.io/badge/ArXiv-Paper-b31b1b.svg?logo=arxiv)](https://arxiv.org/abs/2603.09821)
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/OpenDCAI/One-Eval)
 [![WeChat Group](https://img.shields.io/badge/WeChat-Group-brightgreen?logo=wechat&logoColor=white)](./static/logo/318QRcode.jpg)
 
 </div>
@@ -72,7 +73,8 @@ cd one-eval-web
 npm install
 npm run dev
 ```
-> Visit http://localhost:5173 to start interactive evaluation.
+Visit http://localhost:5173 to start interactive evaluation.
+> Note: After starting, please enter the settings interface first to configure parameters such as API, model, and HF Token (to support batch data download), and click save.
 
 ### 3.3 Minimal Code Mode (Developer Mode)
 
@@ -95,32 +97,37 @@ One-Eval has a built-in rich **Bench Gallery** for unified management of meta-in
 > - 🌐 **General Knowledge**: MMLU, CEval, CMMLU...
 > - 🔧 **Instruction Following**: IFEval...
 
-<!-- TODO: Add Bench Gallery Image Here -->
 ![Bench Gallery](./static/logo/gallery.png)
 
 ## 📮 5. Contact & Citation
 
 If you are interested in this project, or have any questions or suggestions, please contact us via Issue or join our WeChat group.
 
-*The tutorials are part of the DataFlow series, and the One-Eval series tutorials are currently being recorded.*
+•	📮 [GitHub Issues](../../issues): Submit bugs or feature suggestions.
+
+•	🔧 [GitHub Pull Requests](../../pulls): Contribute code improvements.
 
 <div align="center">
-  <img src="https://github.com/user-attachments/assets/090b8a20-6193-41b3-88a1-fe3f4791cb95" width="60%">
+  <img src="./static/logo/318QRcode.jpg" width="30%">
 </div>
 
-<!-- If you use One-Eval in your research, please cite our work: -->
+If you use One-Eval in your research, please cite our work:
 
-<!-- TODO: Add Citation BibTeX -->
-<!--
 ## Citation
 ```bibtex
-@misc{one_eval_2026,
-  title={One-Eval: An Agentic Framework for NL2Evaluation},
-  author={One-Eval Team},
-  year={2026},
-  publisher={GitHub},
-  journal={GitHub repository},
-  howpublished={\url{https://github.com/OpenDCAI/One-Eval}},
+@misc{shen2026oneevalagenticautomatedtraceable,
+      title={One-Eval: An Agentic System for Automated and Traceable LLM Evaluation}, 
+      author={Chengyu Shen and Yanheng Hou and Minghui Pan and Runming He and Zhen Hao Wong and Meiyi Qiang and Zhou Liu and Hao Liang and Peichao Lai and Zeang Sheng and Wentao Zhang},
+      year={2026},
+      eprint={2603.09821},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2603.09821}, 
+}
+@article{liang2025dataflow,
+  title={DataFlow: An LLM-Driven Framework for Unified Data Preparation and Workflow Automation in the Era of Data-Centric AI},
+  author={Liang, Hao and Ma, Xiaochen and Liu, Zhou and Wong, Zhen Hao and Zhao, Zhengyang and Meng, Zimo and He, Runming and Shen, Chengyu and Cai, Qifeng and Han, Zhaoyang and others},
+  journal={arXiv preprint arXiv:2512.16676},
+  year={2025}
 }
 ```
--->
