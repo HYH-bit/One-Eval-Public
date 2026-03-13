@@ -80,6 +80,7 @@ type BenchGalleryMeta = {
   category: BenchCategory;
   tags: string[];
   description: string;
+  description_zh?: string;
   hf_meta: HfMeta;
   structure?: DatasetStructure;
   download_config?: DownloadConfig;
@@ -106,6 +107,7 @@ type BenchItem = {
     category: BenchCategory;
     tags: string[];
     description: string;
+    description_zh?: string;
     datasetUrl?: string;
     datasetKeys?: string[];
   };
@@ -174,6 +176,7 @@ function transformBenchGalleryItem(item: BenchGalleryItem): BenchItem {
       category: meta.category || "Knowledge & QA",
       tags: meta.tags || [],
       description: meta.description || "",
+      description_zh: meta.description_zh || "",
       datasetUrl: item.bench_source_url,
       datasetKeys: item.bench_keys,
     },
@@ -322,7 +325,7 @@ export const Gallery = () => {
       .filter((b) => (category === "All" ? true : b.meta.category === category))
       .filter((b) => {
         if (!q) return true;
-        const hay = `${b.name} ${b.id} ${b.meta.description} ${b.meta.tags.join(" ")} ${b.meta.category}`.toLowerCase();
+        const hay = `${b.name} ${b.id} ${b.meta.description} ${b.meta.description_zh || ""} ${b.meta.tags.join(" ")} ${b.meta.category}`.toLowerCase();
         return hay.includes(q);
       });
   }, [benches, query, category]);
@@ -492,7 +495,7 @@ export const Gallery = () => {
                   </CardHeader>
 
                   <CardContent className="flex-1">
-                    <CardDescription className="text-sm text-slate-600 line-clamp-3">{bench.meta.description}</CardDescription>
+                    <CardDescription className="text-sm text-slate-600 line-clamp-3">{lang === "zh" ? (bench.meta.description_zh || bench.meta.description) : bench.meta.description}</CardDescription>
                   </CardContent>
 
                   <CardFooter className="pt-4 border-t border-slate-100 bg-slate-50/30 flex gap-2">
